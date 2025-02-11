@@ -74,6 +74,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.hc.client5.http.async.AsyncExecChainHandler;
+import org.apache.hc.core5.http.HttpHost;
 
 public final class CamundaClientBuilderImpl
     implements CamundaClientBuilder, CamundaClientConfiguration {
@@ -117,6 +118,7 @@ public final class CamundaClientBuilderImpl
   private ScheduledExecutorService jobWorkerExecutor;
   private boolean ownsJobWorkerExecutor;
   private boolean useDefaultRetryPolicy;
+  private HttpHost httpProxy;
 
   @Override
   public String getGatewayAddress() {
@@ -246,6 +248,11 @@ public final class CamundaClientBuilderImpl
   @Override
   public boolean useDefaultRetryPolicy() {
     return useDefaultRetryPolicy;
+  }
+
+  @Override
+  public HttpHost getHttpProxy() {
+    return httpProxy;
   }
 
   @Override
@@ -578,6 +585,12 @@ public final class CamundaClientBuilderImpl
   @Override
   public CamundaClientBuilder useDefaultRetryPolicy(final boolean useDefaultRetryPolicy) {
     this.useDefaultRetryPolicy = useDefaultRetryPolicy;
+    return this;
+  }
+
+  @Override
+  public CamundaClientBuilder setHttpProxy(final HttpHost httpProxy) {
+    this.httpProxy = httpProxy;
     return this;
   }
 

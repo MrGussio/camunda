@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.hc.client5.http.async.AsyncExecChainHandler;
+import org.apache.hc.core5.http.HttpHost;
 
 public interface CamundaClientBuilder {
 
@@ -221,6 +222,8 @@ public interface CamundaClientBuilder {
    * {@code io.camunda:zeebe-gateway-protocol-impl} JAR.
    */
   CamundaClientBuilder useDefaultRetryPolicy(final boolean useDefaultRetryPolicy);
+
+  CamundaClientBuilder setHttpProxy(HttpHost proxyHost);
 
   /**
    * If true, will prefer to use REST over gRPC for calls which can be done over both REST and gRPC.

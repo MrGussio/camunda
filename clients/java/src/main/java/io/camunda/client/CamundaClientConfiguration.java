@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.hc.client5.http.async.AsyncExecChainHandler;
+import org.apache.hc.core5.http.HttpHost;
 
 public interface CamundaClientConfiguration {
 
@@ -158,6 +159,8 @@ public interface CamundaClientConfiguration {
    * @see CamundaClientBuilder#useDefaultRetryPolicy(boolean)
    */
   boolean useDefaultRetryPolicy();
+
+  HttpHost getHttpProxy();
 
   /**
    * @see CamundaClientBuilder#preferRestOverGrpc(boolean)

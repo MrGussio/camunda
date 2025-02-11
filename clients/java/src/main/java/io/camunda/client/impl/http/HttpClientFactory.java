@@ -141,8 +141,9 @@ public class HttpClientFactory {
             .setUserAgent("camunda-client-java/" + VersionUtil.getVersion())
             .evictExpiredConnections()
             .setCharCodingConfig(
-                CharCodingConfig.custom().setCharset(StandardCharsets.UTF_8).build())
+    CharCodingConfig.custom().setCharset(StandardCharsets.UTF_8).build())
             .evictIdleConnections(TimeValue.ofSeconds(30))
+            .setProxy(config.getHttpProxy())
             .useSystemProperties(); // allow users to customize via system properties
 
     final List<AsyncExecChainHandler> chainHandlers = config.getChainHandlers();

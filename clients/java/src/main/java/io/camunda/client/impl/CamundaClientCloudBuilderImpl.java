@@ -42,6 +42,7 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.ScheduledExecutorService;
 import org.apache.hc.client5.http.async.AsyncExecChainHandler;
+import org.apache.hc.core5.http.HttpHost;
 
 public class CamundaClientCloudBuilderImpl
     implements CamundaClientCloudBuilderStep1,
@@ -285,6 +286,12 @@ public class CamundaClientCloudBuilderImpl
   @Override
   public CamundaClientBuilder useDefaultRetryPolicy(final boolean useDefaultRetryPolicy) {
     innerBuilder.useDefaultRetryPolicy(useDefaultRetryPolicy);
+    return this;
+  }
+
+  @Override
+  public CamundaClientBuilder setHttpProxy(final HttpHost proxyHost) {
+    innerBuilder.setHttpProxy(proxyHost);
     return this;
   }
 
