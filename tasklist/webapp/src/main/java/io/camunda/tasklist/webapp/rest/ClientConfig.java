@@ -7,6 +7,7 @@
  */
 package io.camunda.tasklist.webapp.rest;
 
+import io.camunda.security.configuration.SecurityConfiguration;
 import io.camunda.tasklist.property.TasklistProperties;
 import io.camunda.tasklist.webapp.security.TasklistProfileService;
 import jakarta.annotation.PostConstruct;
@@ -25,6 +26,7 @@ public class ClientConfig {
   public boolean isLoginDelegated;
   public String contextPath;
   public String baseName;
+  public String clientMode;
 
   // Cloud related properties for mixpanel events
   @Value("${CAMUNDA_TASKLIST_CLOUD_ORGANIZATIONID:#{null}}")
@@ -53,18 +55,23 @@ public class ClientConfig {
   @Value("${spring.servlet.multipart.max-request-size:4MB}")
   private DataSize maxRequestSizeConfigValue;
 
+  @Value("${CAMUNDA_TASKLIST_V2_MODE_ENABLED:#{false}}")
+  private boolean isV2ModeEnabled;
+
   @Autowired private TasklistProfileService profileService;
   @Autowired private TasklistProperties tasklistProperties;
+  @Autowired private SecurityConfiguration securityConfiguration;
   @Autowired private ServletContext context;
 
   @PostConstruct
   public void init() {
     isEnterprise = tasklistProperties.isEnterprise();
-    isMultiTenancyEnabled = tasklistProperties.getMultiTenancy().isEnabled();
+    isMultiTenancyEnabled = securityConfiguration.getMultiTenancy().isEnabled();
     contextPath = context.getContextPath();
     baseName = context.getContextPath() + "/tasklist";
     canLogout = profileService.currentProfileCanLogout();
     isLoginDelegated = profileService.isLoginDelegated();
     maxRequestSize = maxRequestSizeConfigValue.toBytes();
+    clientMode = isV2ModeEnabled ? "v2" : "v1";
   }
 }

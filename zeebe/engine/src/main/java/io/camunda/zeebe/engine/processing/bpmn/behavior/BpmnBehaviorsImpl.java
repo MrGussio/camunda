@@ -8,7 +8,7 @@
 package io.camunda.zeebe.engine.processing.bpmn.behavior;
 
 import io.camunda.zeebe.el.ExpressionLanguageFactory;
-import io.camunda.zeebe.engine.metrics.JobMetrics;
+import io.camunda.zeebe.engine.metrics.JobProcessingMetrics;
 import io.camunda.zeebe.engine.processing.bpmn.ProcessInstanceStateTransitionGuard;
 import io.camunda.zeebe.engine.processing.bpmn.clock.ZeebeFeelEngineClock;
 import io.camunda.zeebe.engine.processing.common.CatchEventBehavior;
@@ -56,7 +56,7 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
   public BpmnBehaviorsImpl(
       final MutableProcessingState processingState,
       final Writers writers,
-      final JobMetrics jobMetrics,
+      final JobProcessingMetrics jobMetrics,
       final DecisionBehavior decisionBehavior,
       final SubscriptionCommandSender subscriptionCommandSender,
       final RoutingInfo routingInfo,
@@ -87,11 +87,15 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
             clock,
             transientProcessMessageSubscriptionState);
 
+    stateBehavior = new BpmnStateBehavior(processingState, variableBehavior);
+
     eventTriggerBehavior =
         new EventTriggerBehavior(
-            processingState.getKeyGenerator(), catchEventBehavior, writers, processingState);
-
-    stateBehavior = new BpmnStateBehavior(processingState, variableBehavior);
+            processingState.getKeyGenerator(),
+            catchEventBehavior,
+            writers,
+            processingState,
+            stateBehavior);
 
     bpmnDecisionBehavior =
         new BpmnDecisionBehavior(
@@ -154,7 +158,8 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
             processingState.getKeyGenerator(),
             writers,
             catchEventBehavior,
-            processingState.getElementInstanceState());
+            processingState.getElementInstanceState(),
+            stateBehavior);
 
     signalBehavior =
         new BpmnSignalBehavior(
@@ -180,6 +185,7 @@ public final class BpmnBehaviorsImpl implements BpmnBehaviors {
             writers,
             expressionBehavior,
             stateBehavior,
+            processingState.getResourceState(),
             incidentBehavior,
             jobActivationBehavior,
             jobMetrics,

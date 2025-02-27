@@ -63,7 +63,7 @@ describe('Process table', () => {
   };
 
   it('should transform data to table compatible format', () => {
-    expect(processRawData({report: {reportType: 'process', data, result}})).toMatchSnapshot();
+    expect(processRawData({report: {data, result}})).toMatchSnapshot();
   });
 
   it('should not include columns that are hidden', () => {
@@ -77,7 +77,7 @@ describe('Process table', () => {
         },
       },
     };
-    expect(processRawData({report: {reportType: 'process', data, result}})).toEqual({
+    expect(processRawData({report: {data, result}})).toEqual({
       body: [['foo'], ['xyz']],
       head: [{id: 'processInstanceId', label: 'Process instance Id', title: 'Process instance Id'}],
     });
@@ -94,25 +94,7 @@ describe('Process table', () => {
         },
       },
     };
-    expect(processRawData({report: {reportType: 'process', data, result}})).toMatchSnapshot();
-  });
-
-  it('should make the processInstanceId a link', () => {
-    const cell = processRawData({
-      report: {
-        reportType: 'process',
-        result: {data: [{processInstanceId: '123', engineName: '1'}]},
-        data: {
-          configuration: {
-            tableColumns: {includedColumns: ['processInstanceId', 'engineName'], columnOrder: []},
-          },
-        },
-      },
-      camundaEndpoints: {1: {endpoint: 'http://camunda.com', engineName: 'a'}},
-    }).body[0][0];
-
-    expect(cell.type).toBe('a');
-    expect(cell.props.href).toBe('http://camunda.com/app/cockpit/a/#/process-instance/123');
+    expect(processRawData({report: {data, result}})).toMatchSnapshot();
   });
 
   it('should format start and end dates', () => {
@@ -122,7 +104,6 @@ describe('Process table', () => {
 
     const cells = processRawData({
       report: {
-        reportType: 'process',
         result: {
           data: [{startDate, endDate}],
         },
@@ -142,7 +123,6 @@ describe('Process table', () => {
   it('should format duration', () => {
     const cells = processRawData({
       report: {
-        reportType: 'process',
         result: {
           data: [{duration: 123023423}],
         },
@@ -155,10 +135,9 @@ describe('Process table', () => {
     expect(cells[0]).toBe('1d 10h 10min 23s 423ms');
   });
 
-  it('should not make the processInstanceId a link if no endpoint is specified', () => {
+  it('should display the processInstanceId as text', () => {
     const cell = processRawData({
       report: {
-        reportType: 'process',
         result: {data: [{processInstanceId: '123', engineName: '1'}]},
         data: {
           configuration: {
@@ -175,7 +154,6 @@ describe('Process table', () => {
     const spy = jest.fn();
     const {body} = processRawData({
       report: {
-        reportType: 'process',
         data,
         result,
       },
@@ -189,7 +167,7 @@ describe('Process table', () => {
   });
 
   it('should disable sorting for flow node duration columns', () => {
-    const {head} = processRawData({report: {reportType: 'process', data, result}});
+    const {head} = processRawData({report: {data, result}});
 
     const flowNodeDurationColumns = head.filter((column) => column.type === 'flowNodeDurations');
 

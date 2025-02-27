@@ -44,6 +44,7 @@ public class ProcessInstanceModificationModifyAuthorizationTest {
   @Rule
   public final EngineRule engine =
       EngineRule.singlePartition()
+          .withIdentitySetup()
           .withSecurityConfig(cfg -> cfg.getAuthorizations().setEnabled(true))
           .withSecurityConfig(cfg -> cfg.getInitialization().setUsers(List.of(DEFAULT_USER)));
 
@@ -163,7 +164,6 @@ public class ProcessInstanceModificationModifyAuthorizationTest {
         .authorization()
         .newAuthorization()
         .withPermissions(permissionType)
-        .withOwnerKey(user.getUserKey())
         .withOwnerId(user.getUsername())
         .withOwnerType(AuthorizationOwnerType.USER)
         .withResourceType(authorization)

@@ -7,22 +7,29 @@
  */
 package io.camunda.zeebe.engine.processing.bpmn.behavior;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import io.camunda.zeebe.el.Expression;
-import io.camunda.zeebe.engine.metrics.JobMetrics;
+import io.camunda.zeebe.engine.metrics.EngineMetricsDoc.JobAction;
+import io.camunda.zeebe.engine.metrics.JobProcessingMetrics;
 import io.camunda.zeebe.engine.processing.bpmn.BpmnElementContext;
 import io.camunda.zeebe.engine.processing.common.ExpressionProcessor;
 import io.camunda.zeebe.engine.processing.common.Failure;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutableJobWorkerElement;
 import io.camunda.zeebe.engine.processing.deployment.model.element.ExecutionListener;
 import io.camunda.zeebe.engine.processing.deployment.model.element.JobWorkerProperties;
+import io.camunda.zeebe.engine.processing.deployment.model.element.LinkedResource;
 import io.camunda.zeebe.engine.processing.deployment.model.element.TaskListener;
 import io.camunda.zeebe.engine.processing.deployment.model.transformer.ExpressionTransformer;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.StateWriter;
 import io.camunda.zeebe.engine.processing.streamprocessor.writers.Writers;
+import io.camunda.zeebe.engine.state.deployment.PersistedResource;
 import io.camunda.zeebe.engine.state.immutable.JobState;
 import io.camunda.zeebe.engine.state.immutable.JobState.State;
+import io.camunda.zeebe.engine.state.immutable.ResourceState;
 import io.camunda.zeebe.engine.state.instance.ElementInstance;
+import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeBindingType;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeExecutionListenerEventType;
 import io.camunda.zeebe.model.bpmn.instance.zeebe.ZeebeTaskListenerEventType;
 import io.camunda.zeebe.msgpack.value.DocumentValue;
@@ -35,6 +42,7 @@ import io.camunda.zeebe.protocol.record.value.JobKind;
 import io.camunda.zeebe.protocol.record.value.JobListenerEventType;
 import io.camunda.zeebe.stream.api.state.KeyGenerator;
 import io.camunda.zeebe.util.Either;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -50,11 +58,29 @@ import org.slf4j.LoggerFactory;
 
 public final class BpmnJobBehavior {
 
+  public static final String FIND_LATEST_RESOURCE_BY_ID_FAILED_MESSAGE =
+      """
+      Expected to link a resource with id '%s', but no resource with this id is found, \
+      at least a resource with this id should be available. \
+      To resolve the Incident please deploy a resource with the same id.
+      """;
+  public static final String FIND_RESOURCE_BY_ID_AND_VERSION_TAG_FAILED_MESSAGE =
+      """
+      Expected to link a resource with id '%s' and version tag '%s', but no such resource found. \
+      To resolve the incident, deploy a resource with the given id and version tag.
+      """;
+  public static final String FIND_RESOURCE_BY_ID_IN_SAME_DEPLOYMENT_FAILED_MESSAGE =
+      """
+      Expected to link a resource with id '%s' and binding type 'deployment', \
+      but no such resource found in the deployment with key %s which contained the current process. \
+      To resolve this incident, migrate the process instance to a process definition \
+      that is deployed together with the intended resource to use.\
+      """;
   private static final Logger LOGGER =
       LoggerFactory.getLogger(BpmnJobBehavior.class.getPackageName());
   private static final Set<State> CANCELABLE_STATES =
       EnumSet.of(State.ACTIVATABLE, State.ACTIVATED, State.FAILED, State.ERROR_THROWN);
-
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
   private final JobRecord jobRecord = new JobRecord().setVariables(DocumentValue.EMPTY_DOCUMENT);
   private final HeaderEncoder headerEncoder = new HeaderEncoder(LOGGER);
   private final KeyGenerator keyGenerator;
@@ -62,8 +88,9 @@ public final class BpmnJobBehavior {
   private final JobState jobState;
   private final ExpressionProcessor expressionBehavior;
   private final BpmnStateBehavior stateBehavior;
+  private final ResourceState resourceState;
   private final BpmnIncidentBehavior incidentBehavior;
-  private final JobMetrics jobMetrics;
+  private final JobProcessingMetrics jobMetrics;
   private final BpmnJobActivationBehavior jobActivationBehavior;
   private final BpmnUserTaskBehavior userTaskBehavior;
 
@@ -73,15 +100,17 @@ public final class BpmnJobBehavior {
       final Writers writers,
       final ExpressionProcessor expressionBehavior,
       final BpmnStateBehavior stateBehavior,
+      final ResourceState resourceState,
       final BpmnIncidentBehavior incidentBehavior,
       final BpmnJobActivationBehavior jobActivationBehavior,
-      final JobMetrics jobMetrics,
+      final JobProcessingMetrics jobMetrics,
       final BpmnUserTaskBehavior userTaskBehavior) {
     this.keyGenerator = keyGenerator;
     this.jobState = jobState;
     this.expressionBehavior = expressionBehavior;
     stateWriter = writers.state();
     this.stateBehavior = stateBehavior;
+    this.resourceState = resourceState;
     this.incidentBehavior = incidentBehavior;
     this.jobMetrics = jobMetrics;
     this.jobActivationBehavior = jobActivationBehavior;
@@ -94,6 +123,8 @@ public final class BpmnJobBehavior {
     return Either.<Failure, JobProperties>right(new JobProperties())
         .flatMap(p -> evalTypeExp(jobWorkerProps.getType(), scopeKey).map(p::type))
         .flatMap(p -> evalRetriesExp(jobWorkerProps.getRetries(), scopeKey).map(p::retries))
+        .flatMap(
+            p -> evalLinkedResourceProps(jobWorkerProps, context, scopeKey).map(p::linkedResources))
         .flatMap(
             p ->
                 userTaskBehavior
@@ -133,6 +164,99 @@ public final class BpmnJobBehavior {
                         scopeKey)
                     .map(key -> Objects.toString(key, null))
                     .map(p::formKey));
+  }
+
+  private Either<Failure, List<LinkedResourceProps>> evalLinkedResourceProps(
+      final JobWorkerProperties props, final BpmnElementContext context, final long scopeKey) {
+    final List<LinkedResource> linkedResources = props.getLinkedResources();
+    if (linkedResources == null || linkedResources.isEmpty()) {
+      return Either.right(null);
+    }
+    final List<LinkedResourceProps> linkedResourceProps = new ArrayList<>();
+    for (final LinkedResource linkedResource : linkedResources) {
+      final LinkedResourceProps resourceProps = new LinkedResourceProps();
+      final Either<Failure, String> keyEitherFailure =
+          resolveLinkedResourceKey(linkedResource, context, scopeKey);
+      if (keyEitherFailure.isRight()) {
+        resourceProps.setResourceKey(keyEitherFailure.get());
+      } else {
+        return Either.left(keyEitherFailure.getLeft());
+      }
+      resourceProps.setResourceType(linkedResource.getResourceType());
+      resourceProps.setLinkName(linkedResource.getLinkName());
+      linkedResourceProps.add(resourceProps);
+    }
+    return Either.right(linkedResourceProps);
+  }
+
+  private Either<Failure, String> resolveLinkedResourceKey(
+      final LinkedResource linkedResource, final BpmnElementContext context, final long scopeKey) {
+    return findLinkedResource(
+            linkedResource.getResourceId(),
+            linkedResource.getBindingType(),
+            linkedResource.getVersionTag(),
+            context,
+            scopeKey)
+        .map(PersistedResource::getResourceKey)
+        .map(String::valueOf);
+  }
+
+  private Either<Failure, PersistedResource> findLinkedResource(
+      final String resourceId,
+      final ZeebeBindingType bindingType,
+      final String versionTag,
+      final BpmnElementContext context,
+      final long scopeKey) {
+    return switch (bindingType) {
+      case deployment -> findResourceByIdInSameDeployment(resourceId, context, scopeKey);
+      case latest -> findLatestResourceById(resourceId, context.getTenantId(), scopeKey);
+      case versionTag ->
+          findResourceByIdAndVersionTag(resourceId, versionTag, context.getTenantId(), scopeKey);
+    };
+  }
+
+  private Either<Failure, PersistedResource> findResourceByIdInSameDeployment(
+      final String resourceId, final BpmnElementContext context, final long scopeKey) {
+    return stateBehavior
+        .getDeploymentKey(context.getProcessDefinitionKey(), context.getTenantId())
+        .flatMap(
+            deploymentKey ->
+                Either.ofOptional(
+                        resourceState.findResourceByIdAndDeploymentKey(
+                            resourceId, deploymentKey, context.getTenantId()))
+                    .orElse(
+                        new Failure(
+                            String.format(
+                                FIND_RESOURCE_BY_ID_IN_SAME_DEPLOYMENT_FAILED_MESSAGE,
+                                resourceId,
+                                deploymentKey),
+                            ErrorType.RESOURCE_NOT_FOUND,
+                            scopeKey)));
+  }
+
+  private Either<Failure, PersistedResource> findLatestResourceById(
+      final String resourceId, final String tenantId, final long scopeKey) {
+    return Either.ofOptional(resourceState.findLatestResourceById(resourceId, tenantId))
+        .orElse(
+            new Failure(
+                String.format(FIND_LATEST_RESOURCE_BY_ID_FAILED_MESSAGE, resourceId),
+                ErrorType.RESOURCE_NOT_FOUND,
+                scopeKey));
+  }
+
+  private Either<Failure, PersistedResource> findResourceByIdAndVersionTag(
+      final String resourceId,
+      final String versionTag,
+      final String tenantId,
+      final long scopeKey) {
+    return Either.ofOptional(
+            resourceState.findResourceByIdAndVersionTag(resourceId, versionTag, tenantId))
+        .orElse(
+            new Failure(
+                String.format(
+                    FIND_RESOURCE_BY_ID_AND_VERSION_TAG_FAILED_MESSAGE, resourceId, versionTag),
+                ErrorType.RESOURCE_NOT_FOUND,
+                scopeKey));
   }
 
   private static String asListLiteralOrNull(final List<String> list) {
@@ -178,7 +302,8 @@ public final class BpmnJobBehavior {
   public void createNewTaskListenerJob(
       final BpmnElementContext context,
       final UserTaskRecord taskRecordValue,
-      final TaskListener listener) {
+      final TaskListener listener,
+      final List<String> changedAttributes) {
     evaluateTaskListenerJobExpressions(listener.getJobWorkerProperties(), context, taskRecordValue)
         .thenDo(
             listenerJobProperties ->
@@ -187,7 +312,7 @@ public final class BpmnJobBehavior {
                     listenerJobProperties,
                     JobKind.TASK_LISTENER,
                     fromTaskListenerEventType(listener.getEventType()),
-                    extractUserTaskHeaders(taskRecordValue)))
+                    extractUserTaskHeaders(taskRecordValue, changedAttributes)))
         .ifLeft(failure -> incidentBehavior.createIncident(failure, context));
   }
 
@@ -305,7 +430,7 @@ public final class BpmnJobBehavior {
     final var jobKey = keyGenerator.nextKey();
     stateWriter.appendFollowUpEvent(jobKey, JobIntent.CREATED, jobRecord);
     jobActivationBehavior.publishWork(jobKey, jobRecord);
-    jobMetrics.jobCreated(props.getType(), jobKind);
+    jobMetrics.countJobEvent(JobAction.CREATED, jobKind, props.getType());
   }
 
   private DirectBuffer encodeHeaders(
@@ -317,6 +442,7 @@ public final class BpmnJobBehavior {
     final String dueDate = props.getDueDate();
     final String followUpDate = props.getFollowUpDate();
     final String formKey = props.getFormKey();
+    final List<LinkedResourceProps> linkedResources = props.getLinkedResources();
 
     if (assignee != null && !assignee.isEmpty()) {
       headers.put(Protocol.USER_TASK_ASSIGNEE_HEADER_NAME, assignee);
@@ -336,15 +462,30 @@ public final class BpmnJobBehavior {
     if (formKey != null && !formKey.isEmpty()) {
       headers.put(Protocol.USER_TASK_FORM_KEY_HEADER_NAME, formKey);
     }
+    if (linkedResources != null && !linkedResources.isEmpty()) {
+      try {
+        final String linkedResourcesJson = OBJECT_MAPPER.writeValueAsString(linkedResources);
+        headers.put(Protocol.LINKED_RESOURCES_HEADER_NAME, linkedResourcesJson);
+      } catch (final JsonProcessingException e) {
+        throw new IllegalArgumentException(
+            "Failed to convert linked resource headers to json object", e);
+      }
+    }
     return headerEncoder.encode(headers);
   }
 
-  private Map<String, String> extractUserTaskHeaders(final UserTaskRecord userTaskRecord) {
+  private Map<String, String> extractUserTaskHeaders(
+      final UserTaskRecord userTaskRecord, final List<String> changedAttributes) {
     final var headers = new HashMap<String, String>();
 
-    if (userTaskRecord.getUserTaskKey() > 0) {
+    if (StringUtils.isNotEmpty(userTaskRecord.getAction())) {
+      headers.put(Protocol.USER_TASK_ACTION_HEADER_NAME, userTaskRecord.getAction());
+    }
+
+    if (changedAttributes != null && !changedAttributes.isEmpty()) {
       headers.put(
-          Protocol.USER_TASK_KEY_HEADER_NAME, String.valueOf(userTaskRecord.getUserTaskKey()));
+          Protocol.USER_TASK_CHANGED_ATTRIBUTES_HEADER_NAME,
+          ExpressionTransformer.asListLiteral(changedAttributes));
     }
 
     if (userTaskRecord.getPriority() > 0) {
@@ -352,8 +493,9 @@ public final class BpmnJobBehavior {
           Protocol.USER_TASK_PRIORITY_HEADER_NAME, String.valueOf(userTaskRecord.getPriority()));
     }
 
-    if (StringUtils.isNotEmpty(userTaskRecord.getAction())) {
-      headers.put(Protocol.USER_TASK_ACTION_HEADER_NAME, userTaskRecord.getAction());
+    if (userTaskRecord.getUserTaskKey() > 0) {
+      headers.put(
+          Protocol.USER_TASK_KEY_HEADER_NAME, String.valueOf(userTaskRecord.getUserTaskKey()));
     }
 
     return Collections.unmodifiableMap(headers);
@@ -380,7 +522,7 @@ public final class BpmnJobBehavior {
       // Note that this logic is duplicated in JobCancelProcessor, if you change this please change
       // it there as well.
       stateWriter.appendFollowUpEvent(jobKey, JobIntent.CANCELED, job);
-      jobMetrics.jobCanceled(job.getType(), job.getJobKind());
+      jobMetrics.countJobEvent(JobAction.CANCELED, job.getJobKind(), job.getType());
     }
   }
 
@@ -393,6 +535,7 @@ public final class BpmnJobBehavior {
     private String dueDate;
     private String followUpDate;
     private String formKey;
+    private List<LinkedResourceProps> linkedResources;
 
     public JobProperties type(final String type) {
       this.type = type;
@@ -464,6 +607,45 @@ public final class BpmnJobBehavior {
 
     public String getFormKey() {
       return formKey;
+    }
+
+    public JobProperties linkedResources(final List<LinkedResourceProps> linkedResources) {
+      this.linkedResources = linkedResources;
+      return this;
+    }
+
+    public List<LinkedResourceProps> getLinkedResources() {
+      return linkedResources;
+    }
+  }
+
+  public static final class LinkedResourceProps {
+    private String resourceKey;
+    private String resourceType;
+    private String linkName;
+
+    public String getResourceKey() {
+      return resourceKey;
+    }
+
+    public void setResourceKey(final String resourceKey) {
+      this.resourceKey = resourceKey;
+    }
+
+    public String getResourceType() {
+      return resourceType;
+    }
+
+    public void setResourceType(final String resourceType) {
+      this.resourceType = resourceType;
+    }
+
+    public String getLinkName() {
+      return linkName;
+    }
+
+    public void setLinkName(final String linkName) {
+      this.linkName = linkName;
     }
   }
 }

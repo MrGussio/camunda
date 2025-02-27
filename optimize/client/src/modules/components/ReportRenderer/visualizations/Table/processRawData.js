@@ -13,13 +13,7 @@ import {format} from 'dates';
 import {formatters} from 'services';
 import {t} from 'translation';
 
-import {
-  cockpitLink,
-  getNoDataMessage,
-  isVisibleColumn,
-  getLabelWithType,
-  sortColumns,
-} from './service';
+import {getNoDataMessage, isVisibleColumn, getLabelWithType, sortColumns} from './service';
 
 const {duration} = formatters;
 
@@ -44,7 +38,6 @@ export default function processRawData({
     },
     result: {data: result},
   },
-  camundaEndpoints = {},
   processVariables = [],
   onVariableView,
 }) {
@@ -71,10 +64,6 @@ export default function processRawData({
 
   const body = result.map((instance) => {
     const row = instanceProps.map((entry) => {
-      if (entry === 'processInstanceId') {
-        return cockpitLink(camundaEndpoints, instance);
-      }
-
       if ((entry === 'startDate' || entry === 'endDate') && instance[entry]) {
         return format(parseISO(instance[entry]), "yyyy-MM-dd HH:mm:ss 'UTC'X");
       }

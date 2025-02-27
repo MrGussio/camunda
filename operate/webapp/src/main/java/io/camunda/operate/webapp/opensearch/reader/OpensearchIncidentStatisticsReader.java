@@ -32,13 +32,13 @@ import io.camunda.operate.webapp.rest.dto.ProcessRequestDto;
 import io.camunda.operate.webapp.rest.dto.incidents.IncidentByProcessStatisticsDto;
 import io.camunda.operate.webapp.rest.dto.incidents.IncidentsByErrorMsgStatisticsDto;
 import io.camunda.operate.webapp.rest.dto.incidents.IncidentsByProcessGroupStatisticsDto;
-import io.camunda.operate.webapp.security.identity.IdentityPermission;
 import io.camunda.operate.webapp.security.permission.PermissionsService;
 import io.camunda.webapps.schema.descriptors.operate.index.ProcessIndex;
 import io.camunda.webapps.schema.descriptors.operate.template.IncidentTemplate;
 import io.camunda.webapps.schema.descriptors.operate.template.ListViewTemplate;
 import io.camunda.webapps.schema.entities.operate.ProcessEntity;
 import io.camunda.webapps.schema.entities.operate.listview.ProcessInstanceState;
+import io.camunda.zeebe.protocol.record.value.PermissionType;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -98,13 +98,14 @@ public class OpensearchIncidentStatisticsReader implements IncidentStatisticsRea
             ? ACTIVE_INCIDENT_QUERY
             : and(
                 ACTIVE_INCIDENT_QUERY,
-                createQueryForProcessesByPermission(IdentityPermission.READ));
+                createQueryForProcessesByPermission(PermissionType.READ_PROCESS_INSTANCE));
 
     final var uniqueProcessInstances =
         cardinalityAggregation(IncidentTemplate.PROCESS_INSTANCE_KEY);
     final var groupByProcessKeys =
         termAggregation(IncidentTemplate.PROCESS_DEFINITION_KEY, TERMS_AGG_SIZE);
-    final var errorMessage = topHitsAggregation(List.of(IncidentTemplate.ERROR_MSG), 1);
+    final var errorMessage =
+        topHitsAggregation(List.of(IncidentTemplate.ERROR_MSG, IncidentTemplate.ERROR_MSG_HASH), 1);
     final var groupByErrorMessageHash =
         termAggregation(IncidentTemplate.ERROR_MSG_HASH, TERMS_AGG_SIZE);
 
@@ -240,7 +241,7 @@ public class OpensearchIncidentStatisticsReader implements IncidentStatisticsRea
     return result;
   }
 
-  private Query createQueryForProcessesByPermission(final IdentityPermission permission) {
+  private Query createQueryForProcessesByPermission(final PermissionType permission) {
     final PermissionsService.ResourcesAllowed allowed =
         permissionsService.getProcessesWithPermission(permission);
     if (allowed == null) {
@@ -253,7 +254,7 @@ public class OpensearchIncidentStatisticsReader implements IncidentStatisticsRea
 
   private IncidentsByErrorMsgStatisticsDto getIncidentsByErrorMsgStatistic(
       final Map<Long, ProcessEntity> processes, final LongTermsBucket errorMessageBucket) {
-    record ErrorMessage(String errorMessage) {}
+    record ErrorMessage(String errorMessage, Integer errorMessageHash) {}
 
     final ErrorMessage errorMessage =
         errorMessageBucket
@@ -267,7 +268,8 @@ public class OpensearchIncidentStatisticsReader implements IncidentStatisticsRea
             .to(ErrorMessage.class);
 
     final IncidentsByErrorMsgStatisticsDto processStatistics =
-        new IncidentsByErrorMsgStatisticsDto(errorMessage.errorMessage());
+        new IncidentsByErrorMsgStatisticsDto(
+            errorMessage.errorMessage(), errorMessage.errorMessageHash());
 
     errorMessageBucket
         .aggregations()

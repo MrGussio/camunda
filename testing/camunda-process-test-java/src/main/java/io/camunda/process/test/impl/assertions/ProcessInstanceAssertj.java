@@ -84,7 +84,7 @@ public class ProcessInstanceAssertj
   @Override
   public ProcessInstanceAssert isTerminated() {
     hasProcessInstanceInState(
-        "terminated", ProcessInstanceState.CANCELED::equals, ProcessInstanceAssertj::isEnded);
+        "terminated", ProcessInstanceState.TERMINATED::equals, ProcessInstanceAssertj::isEnded);
     return this;
   }
 
@@ -95,7 +95,7 @@ public class ProcessInstanceAssertj
         state ->
             state == ProcessInstanceState.ACTIVE
                 || state == ProcessInstanceState.COMPLETED
-                || state == ProcessInstanceState.CANCELED,
+                || state == ProcessInstanceState.TERMINATED,
         Objects::nonNull);
     return this;
   }
@@ -133,6 +133,45 @@ public class ProcessInstanceAssertj
   @Override
   public ProcessInstanceAssert hasTerminatedElements(final ElementSelector... elementSelectors) {
     elementAssertj.hasTerminatedElements(getProcessInstanceKey(), elementSelectors);
+    return this;
+  }
+
+  @Override
+  public ProcessInstanceAssert hasActiveElement(final String elementId, final int times) {
+    elementAssertj.hasActiveElement(getProcessInstanceKey(), elementId, times);
+    return this;
+  }
+
+  @Override
+  public ProcessInstanceAssert hasActiveElement(
+      final ElementSelector elementSelector, final int times) {
+    elementAssertj.hasActiveElement(getProcessInstanceKey(), elementSelector, times);
+    return this;
+  }
+
+  @Override
+  public ProcessInstanceAssert hasCompletedElement(final String elementId, final int times) {
+    elementAssertj.hasCompletedElement(getProcessInstanceKey(), elementId, times);
+    return this;
+  }
+
+  @Override
+  public ProcessInstanceAssert hasCompletedElement(
+      final ElementSelector elementSelector, final int times) {
+    elementAssertj.hasCompletedElement(getProcessInstanceKey(), elementSelector, times);
+    return this;
+  }
+
+  @Override
+  public ProcessInstanceAssert hasTerminatedElement(final String elementId, final int times) {
+    elementAssertj.hasTerminatedElement(getProcessInstanceKey(), elementId, times);
+    return this;
+  }
+
+  @Override
+  public ProcessInstanceAssert hasTerminatedElement(
+      final ElementSelector elementSelector, final int times) {
+    elementAssertj.hasTerminatedElement(getProcessInstanceKey(), elementSelector, times);
     return this;
   }
 
@@ -227,8 +266,6 @@ public class ProcessInstanceAssertj
   private static String formatState(final ProcessInstanceState state) {
     if (state == null || state == ProcessInstanceState.UNKNOWN_ENUM_VALUE) {
       return "not created";
-    } else if (state == ProcessInstanceState.CANCELED) {
-      return "terminated";
     } else {
       return state.name().toLowerCase();
     }

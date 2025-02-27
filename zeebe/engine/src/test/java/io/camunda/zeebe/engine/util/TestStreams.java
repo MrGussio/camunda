@@ -54,6 +54,7 @@ import io.camunda.zeebe.stream.impl.TypedEventRegistry;
 import io.camunda.zeebe.test.util.AutoCloseableRule;
 import io.camunda.zeebe.util.Either;
 import io.camunda.zeebe.util.FileUtil;
+import io.camunda.zeebe.util.micrometer.MicrometerUtil;
 import io.camunda.zeebe.util.micrometer.MicrometerUtil.PartitionKeyNames;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
@@ -160,17 +161,19 @@ public final class TestStreams {
       final int partitionId,
       final LogStorage logStorage,
       final Consumer<TestLogStream> logStreamConsumer) {
+    final var meterRegistry = new SimpleMeterRegistry();
     final var logStream =
         TestLogStream.builder()
             .withLogName(name)
             .withLogStorage(logStorage)
             .withPartitionId(partitionId)
             .withClock(clock)
+            .withMeterRegistry(meterRegistry)
             .build();
 
     logStreamConsumer.accept(logStream);
 
-    final LogContext logContext = LogContext.createLogContext(logStream);
+    final LogContext logContext = new LogContext(logStream, meterRegistry);
     logContextMap.put(name, logContext);
     closeables.manage(logContext);
     closeables.manage(() -> logContextMap.remove(name));
@@ -338,12 +341,10 @@ public final class TestStreams {
     LOG.info("Paused processing for stream {}", streamName);
   }
 
-  public void banInstanceInNewTransaction(
-      final String streamName, final int partitionId, final long processInstanceKey) {
+  public void banInstanceInNewTransaction(final String streamName, final long processInstanceKey) {
     final ZeebeDb zeebeDbLocal = streamContextMap.get(streamName).zeebeDb;
     final TransactionContext context = zeebeDbLocal.createContext();
-    new DbBannedInstanceState(zeebeDbLocal, context, partitionId)
-        .banProcessInstance(processInstanceKey);
+    new DbBannedInstanceState(zeebeDbLocal, context).banProcessInstance(processInstanceKey);
   }
 
   public void resumeProcessing(final String streamName) {
@@ -496,24 +497,17 @@ public final class TestStreams {
     }
   }
 
-  private static final class LogContext implements AutoCloseable {
-    private final TestLogStream logStream;
-
-    private LogContext(final TestLogStream logStream) {
-      this.logStream = logStream;
-    }
-
-    public static LogContext createLogContext(final TestLogStream logStream) {
-      return new LogContext(logStream);
-    }
+  public record LogContext(TestLogStream logStream, MeterRegistry meterRegistry)
+      implements AutoCloseable {
 
     @Override
     public void close() {
       logStream.close();
+      MicrometerUtil.close(meterRegistry);
     }
 
     public TestLogStream getLogStream() {
-      return logStream;
+      return logStream();
     }
 
     public LogStreamWriter newLogStreamWriter() {

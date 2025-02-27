@@ -138,6 +138,10 @@ public final class TestSimpleCamundaApplication
     return super.createSpringBuilder();
   }
 
+  public TestSimpleCamundaApplication withAuthorizationsEnabled() {
+    return withSecurityConfig(cfg -> cfg.getAuthorizations().setEnabled(true));
+  }
+
   @Override
   public TestSimpleCamundaApplication self() {
     return this;
@@ -235,5 +239,10 @@ public final class TestSimpleCamundaApplication
       final Consumer<BrokerBasedProperties> modifier) {
     modifier.accept(brokerProperties);
     return this;
+  }
+
+  @Override
+  public BrokerBasedProperties brokerConfig() {
+    return brokerProperties;
   }
 }

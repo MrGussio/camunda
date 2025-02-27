@@ -41,7 +41,6 @@ import io.camunda.zeebe.broker.system.partitions.impl.steps.LogStreamPartitionTr
 import io.camunda.zeebe.broker.system.partitions.impl.steps.MetricsStep;
 import io.camunda.zeebe.broker.system.partitions.impl.steps.MigrationTransitionStep;
 import io.camunda.zeebe.broker.system.partitions.impl.steps.QueryServicePartitionTransitionStep;
-import io.camunda.zeebe.broker.system.partitions.impl.steps.RockDbMetricExporterPartitionStartupStep;
 import io.camunda.zeebe.broker.system.partitions.impl.steps.SnapshotDirectorPartitionTransitionStep;
 import io.camunda.zeebe.broker.system.partitions.impl.steps.StreamProcessorTransitionStep;
 import io.camunda.zeebe.broker.system.partitions.impl.steps.ZeebeDbPartitionTransitionStep;
@@ -63,6 +62,8 @@ import io.camunda.zeebe.stream.api.InterPartitionCommandSender;
 import io.camunda.zeebe.transport.impl.AtomixServerTransport;
 import io.camunda.zeebe.util.FeatureFlags;
 import io.camunda.zeebe.util.FileUtil;
+import io.camunda.zeebe.util.micrometer.MicrometerUtil;
+import io.camunda.zeebe.util.micrometer.MicrometerUtil.PartitionKeyNames;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -72,8 +73,7 @@ import java.util.List;
 
 public final class ZeebePartitionFactory {
 
-  private static final List<StartupStep<PartitionStartupContext>> STARTUP_STEPS =
-      List.of(new RockDbMetricExporterPartitionStartupStep());
+  private static final List<StartupStep<PartitionStartupContext>> STARTUP_STEPS = List.of();
 
   private static final List<PartitionTransitionStep> TRANSITION_STEPS =
       List.of(
@@ -106,7 +106,6 @@ public final class ZeebePartitionFactory {
   private final TopologyManagerImpl topologyManager;
   private final FeatureFlags featureFlags;
   private final List<PartitionRaftListener> partitionRaftListeners;
-  private final MeterRegistry meterRegistry;
   private final SecurityConfiguration securityConfig;
 
   public ZeebePartitionFactory(
@@ -123,7 +122,6 @@ public final class ZeebePartitionFactory {
       final List<PartitionRaftListener> partitionRaftListeners,
       final TopologyManagerImpl topologyManager,
       final FeatureFlags featureFlags,
-      final MeterRegistry meterRegistry,
       final SecurityConfiguration securityConfig) {
     this.actorSchedulingService = actorSchedulingService;
     this.brokerCfg = brokerCfg;
@@ -138,7 +136,6 @@ public final class ZeebePartitionFactory {
     this.partitionRaftListeners = partitionRaftListeners;
     this.topologyManager = topologyManager;
     this.featureFlags = featureFlags;
-    this.meterRegistry = meterRegistry;
     this.securityConfig = securityConfig;
   }
 
@@ -146,13 +143,14 @@ public final class ZeebePartitionFactory {
       final RaftPartition raftPartition,
       final FileBasedSnapshotStore snapshotStore,
       final DynamicPartitionConfig initialPartitionConfig,
-      final BrokerHealthCheckService brokerHealthCheckService) {
+      final BrokerHealthCheckService brokerHealthCheckService,
+      final MeterRegistry partitionMeterRegistry) {
     final var communicationService = clusterServices.getCommunicationService();
     final var membershipService = clusterServices.getMembershipService();
     final var typedRecordProcessorsFactory = createFactory(localBroker, featureFlags);
 
     final StateController stateController =
-        createStateController(raftPartition, snapshotStore, snapshotStore);
+        createStateController(raftPartition, snapshotStore, snapshotStore, partitionMeterRegistry);
 
     final var context =
         new PartitionStartupAndTransitionContextImpl(
@@ -175,9 +173,9 @@ public final class ZeebePartitionFactory {
             diskSpaceUsageMonitor,
             gatewayBrokerTransport,
             topologyManager,
-            meterRegistry,
             brokerHealthCheckService,
-            securityConfig);
+            securityConfig,
+            partitionMeterRegistry);
     context.setDynamicPartitionConfig(initialPartitionConfig);
 
     final PartitionTransition newTransitionBehavior = new PartitionTransitionImpl(TRANSITION_STEPS);
@@ -188,8 +186,10 @@ public final class ZeebePartitionFactory {
   private StateController createStateController(
       final RaftPartition raftPartition,
       final ConstructableSnapshotStore snapshotStore,
-      final ConcurrencyControl concurrencyControl) {
+      final ConcurrencyControl concurrencyControl,
+      final MeterRegistry partitionMeterRegistry) {
     final Path runtimeDirectory;
+    final var partitionId = raftPartition.id().id();
     if (brokerCfg.getData().useSeparateRuntimeDirectory()) {
       final Path rootRuntimeDirectory = Paths.get(brokerCfg.getData().getRuntimeDirectory());
       try {
@@ -198,7 +198,7 @@ public final class ZeebePartitionFactory {
         throw new UncheckedIOException(
             "Runtime directory %s does not exist".formatted(rootRuntimeDirectory), e);
       }
-      runtimeDirectory = rootRuntimeDirectory.resolve(String.valueOf(raftPartition.id().id()));
+      runtimeDirectory = rootRuntimeDirectory.resolve(String.valueOf(partitionId));
     } else {
       runtimeDirectory = raftPartition.dataDirectory().toPath().resolve("runtime");
     }
@@ -208,8 +208,8 @@ public final class ZeebePartitionFactory {
         new ZeebeRocksDbFactory<>(
             databaseCfg.createRocksDbConfiguration(),
             consistencyChecks.getSettings(),
-            new AccessMetricsConfiguration(
-                databaseCfg.getAccessMetrics(), raftPartition.id().id())),
+            new AccessMetricsConfiguration(databaseCfg.getAccessMetrics(), partitionId),
+            () -> MicrometerUtil.wrap(partitionMeterRegistry, PartitionKeyNames.tags(partitionId))),
         snapshotStore,
         runtimeDirectory,
         new AtomixRecordEntrySupplierImpl(raftPartition.getServer()),

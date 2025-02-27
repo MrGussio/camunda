@@ -104,6 +104,10 @@ public final class TestStandaloneBroker extends TestSpringApplication<TestStanda
     return super.createSpringBuilder();
   }
 
+  public TestStandaloneBroker withAuthorizationsEnabled() {
+    return withSecurityConfig(cfg -> cfg.getAuthorizations().setEnabled(true));
+  }
+
   @Override
   public TestStandaloneBroker self() {
     return this;
@@ -163,11 +167,6 @@ public final class TestStandaloneBroker extends TestSpringApplication<TestStanda
     }
 
     return TestStandaloneApplication.super.newClientBuilder();
-  }
-
-  /** Returns the broker configuration */
-  public BrokerBasedProperties brokerConfig() {
-    return config;
   }
 
   /**
@@ -233,6 +232,12 @@ public final class TestStandaloneBroker extends TestSpringApplication<TestStanda
     return this;
   }
 
+  /** Returns the broker configuration */
+  @Override
+  public BrokerBasedProperties brokerConfig() {
+    return config;
+  }
+
   /**
    * Sets the broker's working directory, aka its data directory. If a path is given, the broker
    * will not delete it on shutdown.
@@ -268,12 +273,11 @@ public final class TestStandaloneBroker extends TestSpringApplication<TestStanda
     withProperty("camunda.database.password", "");
     withProperty("logging.level.io.camunda.db.rdbms", "DEBUG");
     withProperty("logging.level.org.mybatis", "DEBUG");
-    withExporter(
-        "rdbms",
-        cfg -> {
-          cfg.setClassName("-");
-          cfg.setArgs(Map.of("flushInterval", "0"));
-        });
+    withProperty("zeebe.broker.exporters.rdbms.args.flushInterval", "PT0S");
+    withProperty("zeebe.broker.exporters.rdbms.args.defaultHistoryTTL", "PT2S");
+    withProperty("zeebe.broker.exporters.rdbms.args.minHistoryCleanupInterval", "PT2S");
+    withProperty("zeebe.broker.exporters.rdbms.args.maxHistoryCleanupInterval", "PT5S");
+    withExporter("rdbms", cfg -> cfg.setClassName("-"));
     return this;
   }
 }

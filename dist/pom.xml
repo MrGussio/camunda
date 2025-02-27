@@ -97,7 +97,6 @@
         </exclusion>
       </exclusions>
     </dependency>
-
     <dependency>
       <groupId>io.camunda</groupId>
       <artifactId>zeebe-elasticsearch-exporter</artifactId>
@@ -198,6 +197,11 @@
           <artifactId>oauth2-oidc-sdk</artifactId>
         </exclusion>
       </exclusions>
+    </dependency>
+
+    <dependency>
+      <groupId>io.camunda</groupId>
+      <artifactId>zeebe-backup-store-filesystem</artifactId>
     </dependency>
 
     <dependency>
@@ -371,11 +375,6 @@
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>
       <artifactId>log4j-core</artifactId>
-    </dependency>
-
-    <dependency>
-      <groupId>io.prometheus</groupId>
-      <artifactId>simpleclient</artifactId>
     </dependency>
 
     <dependency>
@@ -778,6 +777,10 @@
             <program>
               <id>camunda</id>
               <mainClass>io.camunda.application.StandaloneCamunda</mainClass>
+            </program>
+            <program>
+              <id>prefix-migration</id>
+              <mainClass>io.camunda.application.StandalonePrefixMigration</mainClass>
             </program>
           </programs>
           <repositoryLayout>flat</repositoryLayout>

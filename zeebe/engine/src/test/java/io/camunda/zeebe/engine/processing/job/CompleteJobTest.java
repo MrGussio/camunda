@@ -76,7 +76,6 @@ public final class CompleteJobTest {
         .withPermissions(PermissionType.UPDATE_PROCESS_INSTANCE)
         .withResourceId(PROCESS_ID)
         .withResourceType(AuthorizationResourceType.PROCESS_DEFINITION)
-        .withOwnerKey(userKey)
         .withOwnerId(username)
         .withOwnerType(AuthorizationOwnerType.USER)
         .create();
@@ -244,7 +243,7 @@ public final class CompleteJobTest {
   }
 
   @Test
-  public void shouldCompleteJobWithSetResultDeniedTrue() {
+  public void shouldCompleteJobWithSetResultDeniedTrueAndDeniedReason() {
     // given
     ENGINE.createJob(jobType, PROCESS_ID);
     final Record<JobBatchRecordValue> batchRecord =
@@ -255,7 +254,10 @@ public final class CompleteJobTest {
         ENGINE
             .job()
             .withKey(batchRecord.getValue().getJobKeys().get(0))
-            .withResult(new JobResult().setDenied(true))
+            .withResult(
+                new JobResult()
+                    .setDenied(true)
+                    .setDeniedReason("Reason to deny lifecycle transition"))
             .complete();
 
     // then
@@ -263,7 +265,9 @@ public final class CompleteJobTest {
         .hasRecordType(RecordType.EVENT)
         .hasIntent(JobIntent.COMPLETED);
 
-    Assertions.assertThat(completedRecord.getValue()).hasResult(new JobResult().setDenied(true));
+    Assertions.assertThat(completedRecord.getValue())
+        .hasResult(
+            new JobResult().setDenied(true).setDeniedReason("Reason to deny lifecycle transition"));
   }
 
   @Test

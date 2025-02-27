@@ -20,7 +20,6 @@ import io.camunda.operate.util.TestUtil;
 import io.camunda.operate.webapp.rest.dto.incidents.IncidentByProcessStatisticsDto;
 import io.camunda.operate.webapp.rest.dto.incidents.IncidentsByErrorMsgStatisticsDto;
 import io.camunda.operate.webapp.rest.dto.incidents.IncidentsByProcessGroupStatisticsDto;
-import io.camunda.operate.webapp.security.identity.IdentityPermission;
 import io.camunda.operate.webapp.security.permission.PermissionsService;
 import io.camunda.webapps.schema.entities.ExporterEntity;
 import io.camunda.webapps.schema.entities.operate.FlowNodeState;
@@ -30,6 +29,7 @@ import io.camunda.webapps.schema.entities.operate.ProcessEntity;
 import io.camunda.webapps.schema.entities.operate.listview.FlowNodeInstanceForListViewEntity;
 import io.camunda.webapps.schema.entities.operate.listview.ProcessInstanceForListViewEntity;
 import io.camunda.webapps.schema.entities.operate.listview.ProcessInstanceState;
+import io.camunda.zeebe.protocol.record.value.PermissionType;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -53,6 +53,7 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
   public static final String NO_INSTANCES_PROCESS_ID = "noInstancesProcess";
   public static final String NO_INSTANCES_PROCESS_NAME = "No Instances Process";
   public static final String ERRMSG_OTHER = "Other error message";
+  public static final Integer ERRMSG_OTHER_HASH_CODE = ERRMSG_OTHER.hashCode();
   private static final String QUERY_INCIDENTS_BY_PROCESS_URL = INCIDENT_URL + "/byProcess";
   private static final String QUERY_INCIDENTS_BY_ERROR_URL = INCIDENT_URL + "/byError";
   @Rule public SearchTestRule searchTestRule = new SearchTestRule();
@@ -160,14 +161,14 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
   }
 
   @Test
-  public void testIncidentsByProcessWithPermisssionWhenAllowed() throws Exception {
+  public void testIncidentsByProcessWithPermissionWhenAllowed() throws Exception {
 
     // given
     createData();
 
     // when
     when(permissionsService.permissionsEnabled()).thenReturn(true);
-    when(permissionsService.getProcessesWithPermission(IdentityPermission.READ))
+    when(permissionsService.getProcessesWithPermission(PermissionType.READ_PROCESS_DEFINITION))
         .thenReturn(PermissionsService.ResourcesAllowed.all());
 
     // then
@@ -183,14 +184,14 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
   }
 
   @Test
-  public void testIncidentsByProcessWithPermisssionWhenNotAllowed() throws Exception {
+  public void testIncidentsByProcessWithPermissionWhenNotAllowed() throws Exception {
 
     // given
     createData();
 
     // when
     when(permissionsService.permissionsEnabled()).thenReturn(true);
-    when(permissionsService.getProcessesWithPermission(IdentityPermission.READ))
+    when(permissionsService.getProcessesWithPermission(PermissionType.READ_PROCESS_DEFINITION))
         .thenReturn(
             PermissionsService.ResourcesAllowed.withIds(
                 Set.of(DEMO_BPMN_PROCESS_ID, ORDER_BPMN_PROCESS_ID)));
@@ -214,7 +215,7 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
 
     // when
     when(permissionsService.permissionsEnabled()).thenReturn(true);
-    when(permissionsService.getProcessesWithPermission(IdentityPermission.READ))
+    when(permissionsService.getProcessesWithPermission(PermissionType.READ_PROCESS_INSTANCE))
         .thenReturn(PermissionsService.ResourcesAllowed.all());
 
     // then
@@ -230,6 +231,8 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
     // TODO: Check
     assertThat(incidentsByError1.getInstancesWithErrorCount()).isEqualTo(3);
     assertThat(incidentsByError1.getProcesses()).hasSize(2);
+    assertThat(incidentsByError1.getIncidentErrorHashCode())
+        .isEqualTo(TestUtil.ERROR_MSG_HASH_CODE);
     assertThat(
             incidentsByError1.getProcesses().stream()
                 .map(IncidentByProcessStatisticsDto::getBpmnProcessId)
@@ -243,6 +246,7 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
             .orElseThrow();
     assertThat(incidentsByError2.getInstancesWithErrorCount()).isEqualTo(2);
     assertThat(incidentsByError2.getProcesses()).hasSize(2);
+    assertThat(incidentsByError2.getIncidentErrorHashCode()).isEqualTo(ERRMSG_OTHER_HASH_CODE);
     assertThat(
             incidentsByError2.getProcesses().stream()
                 .map(IncidentByProcessStatisticsDto::getBpmnProcessId)
@@ -258,7 +262,7 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
 
     // when
     when(permissionsService.permissionsEnabled()).thenReturn(true);
-    when(permissionsService.getProcessesWithPermission(IdentityPermission.READ))
+    when(permissionsService.getProcessesWithPermission(PermissionType.READ_PROCESS_INSTANCE))
         .thenReturn(PermissionsService.ResourcesAllowed.withIds(Set.of()));
 
     // then
@@ -275,7 +279,7 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
 
     // when
     when(permissionsService.permissionsEnabled()).thenReturn(true);
-    when(permissionsService.getProcessesWithPermission(IdentityPermission.READ))
+    when(permissionsService.getProcessesWithPermission(PermissionType.READ_PROCESS_INSTANCE))
         .thenReturn(PermissionsService.ResourcesAllowed.withIds(Set.of(DEMO_BPMN_PROCESS_ID)));
 
     // then
@@ -290,6 +294,8 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
             .orElseThrow();
     assertThat(incidentsByError1.getInstancesWithErrorCount()).isEqualTo(2);
     assertThat(incidentsByError1.getProcesses()).hasSize(1);
+    assertThat(incidentsByError1.getIncidentErrorHashCode())
+        .isEqualTo(TestUtil.ERROR_MSG_HASH_CODE);
     assertThat(
             incidentsByError1.getProcesses().stream()
                 .map(IncidentByProcessStatisticsDto::getBpmnProcessId)
@@ -303,6 +309,7 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
             .orElseThrow();
     assertThat(incidentsByError2.getInstancesWithErrorCount()).isEqualTo(2);
     assertThat(incidentsByError2.getProcesses()).hasSize(2);
+    assertThat(incidentsByError2.getIncidentErrorHashCode()).isEqualTo(ERRMSG_OTHER_HASH_CODE);
     assertThat(
             incidentsByError2.getProcesses().stream()
                 .map(IncidentByProcessStatisticsDto::getBpmnProcessId)
@@ -318,7 +325,7 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
 
     // when
     when(permissionsService.permissionsEnabled()).thenReturn(true);
-    when(permissionsService.getProcessesWithPermission(IdentityPermission.READ))
+    when(permissionsService.getProcessesWithPermission(PermissionType.READ_PROCESS_INSTANCE))
         .thenReturn(PermissionsService.ResourcesAllowed.withIds(Set.of(ORDER_BPMN_PROCESS_ID)));
 
     // then
@@ -334,6 +341,8 @@ public class IncidentStatisticsIT extends OperateAbstractIT {
     // TODO: Check
     assertThat(incidentsByError1.getInstancesWithErrorCount()).isEqualTo(1);
     assertThat(incidentsByError1.getProcesses()).hasSize(1);
+    assertThat(incidentsByError1.getIncidentErrorHashCode())
+        .isEqualTo(TestUtil.ERROR_MSG_HASH_CODE);
     assertThat(
             incidentsByError1.getProcesses().stream()
                 .map(IncidentByProcessStatisticsDto::getBpmnProcessId)
